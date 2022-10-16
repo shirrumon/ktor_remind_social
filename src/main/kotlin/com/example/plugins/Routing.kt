@@ -15,6 +15,7 @@ import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.collections.LinkedHashSet
 
 fun Application.configureRouting() {
@@ -32,7 +33,7 @@ fun Application.configureRouting() {
                 .withAudience( "http://0.0.0.0:8080/")
                 .withIssuer("http://0.0.0.0:8080/hello")
                 .withClaim("username", user.username)
-                .withExpiresAt(Date(System.currentTimeMillis() + 60000))
+                .withExpiresAt(Date(System.currentTimeMillis() + 999999999999999999))
                 .sign(Algorithm.HMAC256("secret"))
             call.respond(hashMapOf("token" to token))
         }
@@ -46,6 +47,7 @@ fun Application.configureRouting() {
             }
 
             val connections = Collections.synchronizedSet<WebSocketConnection?>(LinkedHashSet())
+            val sessionsById = ConcurrentHashMap<UserId, WebSocketConnection>()
             webSocket("/chat") {
                 println("Adding user!")
                 val thisConnection = WebSocketConnection(this)
@@ -55,57 +57,34 @@ fun Application.configureRouting() {
                 val username = principal!!.payload.getClaim("username").asString()
                 val currentUser = dao.user(username)
 
-                if (currentUser != null) {
-                    dao.editUserSingle(currentUser.userName, currentUser.password, connections.size.toString())
-                }
+                val userId = currentUser!!.id
+                sessionsById[userId] = thisConnection
+
+                dao.editUserSingle(currentUser.userName, currentUser.password, connections.size.toString())
 
                 val targetSession = call.request.headers.get("target")
-                if(!targetSession.isNullOrEmpty()){
-                    try {
-                        send("You are connected! There are ${connections.count()} users here.")
-                        for (frame in incoming) {
-                            frame as? Frame.Text ?: continue
-                            val receivedText = frame.readText()
-                            val sessionToSend = connections.elementAt(targetSession.toInt() - 1)
-                            val secondUserSeesion = thisConnection
-                            val textWithUsername = "[${thisConnection.name}]: $receivedText"
-//                    connections.forEach {
-//                        it.session.send(textWithUsername)
-//                    }
-                            secondUserSeesion.session.send(textWithUsername)
-                            sessionToSend.session.send(textWithUsername)
-                            send("${connections}")
+                try {
+                    send("You are connected! There are ${connections.count()} users here.")
+                    for (frame in incoming) {
+                        frame as? Frame.Text ?: continue
+                        val receivedText = frame.readText()
+                        val firstUserSession = sessionsById[userId]
+                        val secondUserSession = sessionsById[targetSession!!.toInt()]
+                        val textWithUsername = "[${thisConnection.name}]: $receivedText"
+                        if(!targetSession.isEmpty()){
+                            firstUserSession!!.session.send(textWithUsername)
+                            secondUserSession!!.session.send(textWithUsername)
                         }
-                    } catch (e: Exception) {
-                        println(e.localizedMessage)
-                    } finally {
-                        println("Removing $thisConnection!")
-                        connections -= thisConnection
                     }
-                } else {
-                    try {
-                        send("You are connected! There are ${connections.count()} users here.")
-                        for (frame in incoming) {
-                            frame as? Frame.Text ?: continue
-                            val receivedText = frame.readText()
-                            val sessionToSend = connections.elementAt(0)
-                            val secondUserSeesion = thisConnection
-                            val textWithUsername = "[${thisConnection.name}]: $receivedText"
-//                    connections.forEach {
-//                        it.session.send(textWithUsername)
-//                    }
-                            secondUserSeesion.session.send(textWithUsername)
-                            sessionToSend.session.send(textWithUsername)
-                            send("${connections}")
-                        }
-                    } catch (e: Exception) {
-                        println(e.localizedMessage)
-                    } finally {
-                        println("Removing $thisConnection!")
-                        connections -= thisConnection
-                    }
+                } catch (e: Exception) {
+                    println(e.localizedMessage)
+                } finally {
+                    println("Removing $thisConnection!")
+                    connections -= thisConnection
                 }
             }
         }
     }
 }
+
+typealias UserId = Int
