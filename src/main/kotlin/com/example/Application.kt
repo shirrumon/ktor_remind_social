@@ -6,11 +6,13 @@ import com.example.dao.DatabaseFactory
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import com.example.plugins.*
+import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import kotlinx.serialization.json.Json
 import java.time.Duration
@@ -36,10 +38,10 @@ fun main() {
             jwt("auth-jwt") {
                 verifier(
                     JWT
-                    .require(Algorithm.HMAC256("secret"))
-                    .withAudience("http://0.0.0.0:8080/")
-                    .withIssuer("http://0.0.0.0:8080/hello")
-                    .build())
+                        .require(Algorithm.HMAC256("e845d28de1b5488fbb82e064ee7d0b40"))
+                        .withAudience("http://0.0.0.0:8080/")
+                        .withIssuer("http://0.0.0.0:8080/hello")
+                        .build())
                 validate { credential ->
                     if (credential.payload.getClaim("username").asString() != "") {
                         JWTPrincipal(credential.payload)
@@ -47,8 +49,12 @@ fun main() {
                         null
                     }
                 }
+                challenge { defaultScheme, realm ->
+                    call.respond(HttpStatusCode.Unauthorized, "Token is not valid or has expired")
+                }
             }
         }
+
 
         configureRouting()
     }.start(wait = true)

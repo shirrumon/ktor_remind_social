@@ -2,10 +2,12 @@ package com.example.plugins
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.example.WebSocketConnection
-import com.example.dao.dao
-import com.example.models.User
-import io.ktor.http.*
+import com.example.dao.user.userDao
+import com.example.factory.user.AuthTokenFactory
+import com.example.models.serializtion.UserLoginSerializationModel
+import com.example.plugins.websockets.WebSocketConnection
+import com.example.models.serializtion.UserSerializationModel
+import com.google.gson.GsonBuilder
 import io.ktor.server.routing.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -14,31 +16,54 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import org.mindrot.jbcrypt.BCrypt
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.collections.LinkedHashSet
 
 fun Application.configureRouting() {
-
     routing {
         post("register"){
+            val gsonPretty = GsonBuilder().setPrettyPrinting().create()
+
             val formParameters = call.receive<UserSerializationModel>()
-            val user = dao.createNewUser(formParameters.username, formParameters.password, "")
-            call.respond("ok")
+            val user = userDao.createUser(
+                formParameters.username,
+                formParameters.password,
+                formParameters.name,
+                formParameters.surname,
+                "",
+                "",
+            )
+            call.respond(gsonPretty.toJson(user))
         }
 
         post("/login") {
-            val user = call.receive<UserSerializationModel>()
-            val token = JWT.create()
-                .withAudience( "http://0.0.0.0:8080/")
-                .withIssuer("http://0.0.0.0:8080/hello")
-                .withClaim("username", user.username)
-                .withExpiresAt(Date(System.currentTimeMillis() + 999999999999999999))
-                .sign(Algorithm.HMAC256("secret"))
-            call.respond(hashMapOf("token" to token))
+            val userFromRequest = call.receive<UserLoginSerializationModel>()
+
+            val userFromDb = userDao.getUserByUsername(userFromRequest.getUsername())
+
+            if(userFromDb !== null){
+                if (!BCrypt.checkpw(userFromRequest.getPassword(), userFromDb.password)){
+                    call.respond("password is wrong")
+                } else {
+                    val token = AuthTokenFactory().createToken(userFromRequest.getUsername())
+                    call.respond(hashMapOf("token" to token))
+                }
+            } else {
+                call.respond("user not exist")
+            }
         }
 
         authenticate("auth-jwt") {
+            delete("account/delete"){
+                val principal = call.principal<JWTPrincipal>()
+                val username = principal!!.payload.getClaim("username").asString()
+
+                userDao.deleteUserByUsername(username)
+                call.respondText("Your account was successfully deleted")
+            }
+
             get("/") {
                 val principal = call.principal<JWTPrincipal>()
                 val username = principal!!.payload.getClaim("username").asString()
@@ -54,13 +79,11 @@ fun Application.configureRouting() {
                 connections += thisConnection
 
                 val principal = call.principal<JWTPrincipal>()
-                val username = principal!!.payload.getClaim("username").asString()
-                val currentUser = dao.user(username)
+                val username = principal!!.payload.getClaim("id").asInt()
+                val currentUser = userDao.getUser(username)
 
                 val userId = currentUser!!.id
                 sessionsById[userId] = thisConnection
-
-                dao.editUserSingle(currentUser.userName, currentUser.password, connections.size.toString())
 
                 val targetSession = call.request.headers.get("target")
                 try {
