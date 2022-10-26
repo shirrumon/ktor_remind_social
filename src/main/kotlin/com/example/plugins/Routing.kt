@@ -4,6 +4,7 @@ import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.example.dao.user.userDao
 import com.example.factory.user.AuthTokenFactory
+import com.example.models.serializtion.UserEditSerializationModel
 import com.example.models.serializtion.UserLoginSerializationModel
 import com.example.plugins.websockets.WebSocketConnection
 import com.example.models.serializtion.UserSerializationModel
@@ -56,6 +57,27 @@ fun Application.configureRouting() {
         }
 
         authenticate("auth-jwt") {
+            post("account/edit"){
+                val dataFromRequest = call.receive<UserEditSerializationModel>()
+
+                val principal = call.principal<JWTPrincipal>()
+                val username = principal!!.payload.getClaim("username").asString()
+
+                val changedUser = userDao.editUser(
+                    username,
+                    dataFromRequest.getName(),
+                    dataFromRequest.getSurname(),
+                    dataFromRequest.getEmail(),
+                    dataFromRequest.getPhoneNumber()
+                )
+
+                if(changedUser){
+                    call.respond("User was successfully updated")
+                } else {
+                    call.respond("Unknown error")
+                }
+            }
+
             delete("account/delete"){
                 val principal = call.principal<JWTPrincipal>()
                 val username = principal!!.payload.getClaim("username").asString()
@@ -79,8 +101,8 @@ fun Application.configureRouting() {
                 connections += thisConnection
 
                 val principal = call.principal<JWTPrincipal>()
-                val username = principal!!.payload.getClaim("id").asInt()
-                val currentUser = userDao.getUser(username)
+                val username = principal!!.payload.getClaim("username").asString()
+                val currentUser = userDao.getUserByUsername(username)
 
                 val userId = currentUser!!.id
                 sessionsById[userId] = thisConnection

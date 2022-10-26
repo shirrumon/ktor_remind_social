@@ -14,8 +14,7 @@ interface UserFacadeInterface {
         phoneNumber: String
     ): User?
     suspend fun editUser(
-        id: Int,
-        password: String,
+        username: String,
         name: String,
         surname: String,
         email: String,

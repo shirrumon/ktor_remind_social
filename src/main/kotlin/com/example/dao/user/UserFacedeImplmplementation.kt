@@ -52,20 +52,18 @@ class UserFacadeImplementation: UserFacadeInterface {
         }
 
     override suspend fun editUser(
-        id: Int,
-        password: String,
+        username: String,
         name: String,
         surname: String,
         email: String,
         phoneNumber: String
     ): Boolean =
         DatabaseFactory.dbQuery {
-            Users.update({ Users.id eq id }) {
+            Users.update({ Users.username eq username }) {
                 it[Users.name] = name
                 it[Users.surname] = surname
                 it[Users.email] = email
                 it[Users.phoneNumber] = phoneNumber
-                it[Users.password] = BCrypt.hashpw(password, BCrypt.gensalt())
             } > 0
         }
 
